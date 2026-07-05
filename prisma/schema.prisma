@@ -1,0 +1,63 @@
+generator client {
+  provider = "prisma-client"
+  output   = "./generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id       String    @id @default(uuid())
+  username String    @unique
+  password String
+  role     Role      @default(USER)
+  posts    Post[]
+  comments Comment[]
+}
+
+model Post {
+  id             String    @id @default(uuid())
+  author_id      String
+  author         User      @relation(fields: [author_id], references: [id])
+  title          String
+  message        String
+  published_time DateTime  @default(now())
+  image_url      String?
+  is_published   Boolean   @default(false)
+  comments       Comment[]
+}
+
+model Comment {
+  id        String @id @default(uuid())
+  post_id   String
+  posts     Post   @relation(fields: [post_id], references: [id])
+  author_id String
+  author    User   @relation(fields: [author_id], references: [id])
+  message   String
+}
+
+model Tokens {
+  id          String        @id @default(uuid())
+  user_id     String
+  token       String        @unique
+  status      StatusOfToken @default(ACTIVE)
+  used_at     DateTime?
+  replaced_by String?       @unique
+
+  parent   Tokens? @relation("TokenChain", fields: [replaced_by], references: [id])
+  children Tokens? @relation("TokenChain")
+
+  @@index([user_id, status])
+}
+
+enum StatusOfToken {
+  ACTIVE
+  USED
+}
+
+enum Role {
+  USER
+  AUTHOR
+  ADMIN
+}
