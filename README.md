@@ -28,6 +28,7 @@ usa para todo. Para crear un recurso nuevo se clona ese patrón (ver
 - [Referencia de la API](#referencia-de-la-api)
 - [Modelos de datos](#modelos-de-datos)
 - [Validaciones](#validaciones)
+- [Testing](#testing)
 - [Guía: cómo agregar un recurso nuevo](#guía-cómo-agregar-un-recurso-nuevo)
 - [Puntos de extensión y limitaciones conocidas](#puntos-de-extensión-y-limitaciones-conocidas)
 
@@ -46,6 +47,7 @@ usa para todo. Para crear un recurso nuevo se clona ese patrón (ver
 | Validación    | `express-validator` (bodies) + `zod` (UUIDs)           |
 | Seguridad     | `helmet` (cabeceras) + `express-rate-limit` (en /auth) |
 | CORS          | `cors`                                                 |
+| Testing       | Vitest + Supertest + Testcontainers (PostgreSQL efímero) |
 | Gestor pkgs   | `pnpm`                                                 |
 
 ---
@@ -54,7 +56,8 @@ usa para todo. Para crear un recurso nuevo se clona ese patrón (ver
 
 ```
 .
-├── app.ts                     # Punto de entrada: middlewares globales + montaje de routers
+├── server.ts                  # Punto de entrada: importa el app y hace el listen
+├── app.ts                     # App de Express: middlewares globales + montaje de routers (exportado sin listen para los tests)
 ├── config/
 │   ├── env.ts                 # ÚNICA fuente de configuración: valida env al arrancar
 │   └── corsOptions.ts         # Configuración de CORS
@@ -84,6 +87,13 @@ usa para todo. Para crear un recurso nuevo se clona ese patrón (ver
 │   ├── lib/prisma.ts          # Cliente Prisma (usa DATABASE_URL de config/env.ts)
 │   ├── migrations/            # Migraciones SQL
 │   └── generated/prisma/      # Cliente Prisma generado (no editar a mano)
+├── tests/                     # Suite de integración (ver sección Testing)
+│   ├── globalSetup.ts         # Contenedor PostgreSQL efímero + migraciones + env de test
+│   ├── helpers.ts             # truncateAll, registro de usuarios, parseo de cookies
+│   ├── auth.test.ts
+│   ├── posts.test.ts
+│   └── users.test.ts
+├── vitest.config.ts           # Config de Vitest (archivos en serie, timeouts de contenedor)
 ├── prisma.config.ts           # Configuración del CLI de Prisma
 ├── express.d.ts               # Augment de Express.Request con `user`
 ├── .env.example               # Plantilla de variables de entorno
@@ -122,7 +132,8 @@ y da defaults a las opcionales. Ningún otro archivo lee `process.env`.
 cp .env.example .env         # y rellena los valores
 pnpm install
 pnpm prisma migrate deploy   # aplica las migraciones a la base de datos
-pnpm dev                     # tsx watch app.ts → http://localhost:3000
+pnpm dev                     # tsx watch server.ts → http://localhost:3000
+pnpm test                    # suite de integración (requiere Docker corriendo)
 ```
 
 ---
@@ -336,6 +347,49 @@ Cadenas de `express-validator` en `services/validation/`, siempre seguidas de
 
 ---
 
+## Testing
+
+Suite de **integración** (38 tests): cada test hace requests HTTP reales con
+**Supertest** contra el `app` exportado (sin abrir puerto) y golpea un
+**PostgreSQL real y efímero** que **Testcontainers** levanta en Docker por
+corrida. No se mockea Prisma: lo que se prueba es el comportamiento observable
+de la API, capa por capa.
+
+```bash
+pnpm test          # corrida única (requiere Docker Desktop corriendo)
+pnpm test:watch    # modo watch
+```
+
+**Cómo funciona la infraestructura:**
+
+- `tests/globalSetup.ts` arranca un contenedor `postgres:17`, exporta al env
+  `DATABASE_URL` (la URI del contenedor) y secretos dummy, y aplica las
+  migraciones reales con `prisma migrate deploy`. Es hermético: no usa tu
+  `.env` ni toca tu base de desarrollo.
+- `vitest.config.ts` corre los archivos **en serie** (`fileParallelism: false`)
+  porque comparten la DB; cada suite hace `beforeEach(truncateAll)`.
+- `tests/helpers.ts` centraliza el truncado y el manejo de cookies de sesión
+  (Supertest no maneja cookie jar con paths, se reenvían a mano).
+
+**Qué cubre:**
+
+- `auth.test.ts` — lo crítico: register/login/logout, rotación de refresh
+  tokens verificada **en la base** (`USED` + `replaced_by`), la **ventana de
+  gracia** con dos refresh concurrentes, y la **detección de reutilización**
+  (retrocediendo `used_at` en la DB para no dormir 5 s) con invalidación total
+  de la sesión.
+- `posts.test.ts` — el recurso de referencia: visibilidad de borradores
+  (anónimo/tercero/autor), ownership en PATCH/DELETE (404 ajeno), publish con
+  boolean estricto, validaciones `400 { errors }`.
+- `users.test.ts` — `/me` y `/me/posts`, incluyendo la rama `401` de
+  `checkToken` (cookie con firma válida pero contenido que no es JWT).
+
+**Al clonar un recurso nuevo**, clona también su suite: `posts.test.ts` es la
+plantilla (arrange con los helpers, actúa por HTTP, aserciones sobre la
+respuesta y, cuando importa, sobre la base con el cliente de Prisma).
+
+---
+
 ## Guía: cómo agregar un recurso nuevo
 
 La receta del template: clonar el patrón de `posts`. Ejemplo con un recurso
@@ -430,7 +484,7 @@ Decisiones conscientes del template — cosas que **no** trae y dónde enganchar
 | Ventana de gracia en memoria | La caché de 5 s de `jwtFunctions.ts` vive en el proceso: con varias instancias o un reinicio a media rotación, un refresh legítimo puede caer en `409`. Para multi-instancia: mover la caché a Redis (o guardar el token crudo cifrado). |
 | Rate limit en memoria | `express-rate-limit` usa store en memoria; multi-instancia necesita un store compartido (p. ej. `rate-limit-redis`). |
 | Autorización por rol | `Role` (`USER`/`AUTHOR`/`ADMIN`) existe en la base y viaja en el token, pero no hay middleware que lo exija. Punto de extensión: un `checkRole("ADMIN")` en `services/` que lea `req.user.role`. |
-| Tests | No hay pruebas automatizadas. El caso que más lo merece: la carrera de dos `POST /auth/refresh` simultáneos (ventana de gracia). |
+| CI | Los tests corren localmente (`pnpm test`); no hay pipeline. Extensión: GitHub Actions con Docker disponible en el runner (Testcontainers funciona tal cual en `ubuntu-latest`). |
 | Paginación | Los listados devuelven todo. Extensión: `take`/`skip` de Prisma leídos de query params en el modelo. |
 | `title` no editable | `PATCH /posts/:id` solo edita `message` — decisión heredada del blog; amplía `postUpdateValidatorChain` y el modelo si lo necesitas. |
 | Imágenes | `image_url` existe en `Post` pero no hay flujo de subida (el plan original usaba Supabase). |

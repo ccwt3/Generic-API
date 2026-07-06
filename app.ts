@@ -4,14 +4,15 @@ import cookieParser from "cookie-parser";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-const app = express();
+import type { Express } from "express";
+const app: Express = express();
 
 // modules
 import authRouter from "./routes/authRouter.js";
 import postsRouter from "./routes/postsRouter.js";
 import usersRouter from "./routes/usersRouter.js";
 import { corsOptions } from "./config/corsOptions.js";
-import { COOKIE_KEY, PORT } from "./config/env.js";
+import { COOKIE_KEY } from "./config/env.js";
 
 // Types
 import type { Request, Response, NextFunction } from "express";
@@ -42,11 +43,5 @@ app.use((err: unknown, req: Request, res: Response, next: NextFunction) => {
   res.status(500).json({ message: "Internal server error" });
 });
 
-// running server
-app.listen(PORT, (err) => {
-  if (err) {
-    console.error(err);
-  }
-
-  console.log(`Port listening at http://localhost:${PORT}`);
-});
+// El listen vive en server.ts: así los tests importan el app sin abrir puerto.
+export default app;

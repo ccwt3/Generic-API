@@ -310,3 +310,71 @@ deuda tecnica pendiente. Toda la documentacion nueva vive en `README_new.md`.
   controllers: intactos.
 
 [Listo :v]
+
+---
+
+## Sesion (rama `refactor`) — suite de testing de integracion
+
+Se agrego testing de integracion al template: **38 tests** que hacen requests
+HTTP reales (Supertest) contra el `app` de Express y un **PostgreSQL efimero en
+Docker** (Testcontainers). Sin mocks de Prisma: se prueba el comportamiento
+observable de la API completa.
+
+### Stack elegido
+
+- **Vitest** (no Jest): soporte nativo ESM + TypeScript, cero config extra con
+  `"type": "module"` y resolucion `Node16`.
+- **Supertest**: requests contra el app exportado, sin abrir puerto.
+- **@testcontainers/postgresql**: contenedor `postgres:17` por corrida, con las
+  migraciones reales aplicadas via `prisma migrate deploy`. Hermetico (secretos
+  dummy, no usa el `.env` local ni la DB de desarrollo).
+
+### Cambios de codigo
+
+- **Split `app.ts` / `server.ts`**: `app.ts` ahora exporta el app sin hacer
+  `listen` (necesario para Supertest); el `listen` vive en `server.ts`, nuevo
+  punto de entrada. `dev` es `tsx watch server.ts`. Se anoto `app: Express`
+  (TS2742 de pnpm con `declaration: true`).
+- **`vitest.config.ts`**: archivos en serie (comparten DB), timeouts amplios
+  para el arranque del contenedor.
+- **`tests/`**: `globalSetup.ts` (contenedor + env + migraciones),
+  `helpers.ts` (truncado, registro, parseo de cookies), y las tres suites.
+- `pnpm-workspace.yaml`: los build scripts nativos de testcontainers (`ssh2`,
+  `cpu-features`, `protobufjs`) quedaron explicitamente en `false` — son
+  aceleradores opcionales que no se necesitan (Docker local por named pipe).
+
+### Que cubren los tests
+
+- **auth (15)**: register/login/logout con cookies httpOnly y paths
+  restringidos; rotacion verificada en la DB (`USED` + `replaced_by`);
+  **ventana de gracia** con dos refresh concurrentes; **deteccion de
+  reutilizacion** (retrocediendo `used_at` para no dormir 5 s) con borrado
+  total de tokens; refresh tras logout → 403.
+- **posts (18)**: listado publico solo con publicados en orden desc;
+  visibilidad de borradores (anonimo 404 / tercero 404 / autor 200); ownership
+  en PATCH, publish y DELETE; boolean estricto en publish; validaciones 400.
+- **users (5)**: `/me` con payload del token; rama 401 de `checkToken` con una
+  cookie firmada a mano (replica de cookie-signature) cuyo contenido no es JWT;
+  `/me/posts` con borradores propios y sin posts ajenos.
+
+### Hallazgo curioso
+
+Dos access tokens firmados el mismo segundo con los mismos claims producen un
+JWT **identico** (HS256 es determinista y `iat`/`exp` van en segundos). No es
+bug — por eso el refresh lleva `jti` — pero obligo a ajustar una asercion.
+
+### Verificacion
+
+- `tsc --noEmit` limpio.
+- `pnpm test` verde dos veces seguidas (contenedor fresco cada vez, sin estado
+  residual).
+- `pnpm dev` (ahora `server.ts`) verificado con smoke de `GET /posts`.
+
+### Docs
+
+- README del template: fila de Testing en el stack, `server.ts` y `tests/` en
+  la estructura, nueva seccion **Testing** (infraestructura, cobertura, como
+  clonar la suite para un recurso nuevo), y la limitacion "Tests" reemplazada
+  por "CI" como siguiente punto de extension.
+
+[Listo :v]
