@@ -1,7 +1,9 @@
+import { CORS_ORIGIN } from "./env.js";
+
 export const corsOptions = {
-  origin: "http://localhost:5173",
+  origin: CORS_ORIGIN,
   optionsSuccessStatus: 200,
   credentials: true,
   allowedHeaders: ["Content-Type"],
-  methods: ["POST", "GET", "PUT", "DELETE"],
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
 };

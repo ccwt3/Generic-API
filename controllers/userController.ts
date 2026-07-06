@@ -1,21 +1,12 @@
 import type { Request, Response } from "express";
 import PostsModel from "../models/PostsModel.js";
 
-interface UsersRequest extends Request {
-  user?: {
-    id: string;
-    role: string;
-    username: string;
-  };
-}
-
 export default {
   getMe,
   getMyPosts,
-  emptyEndpoint,
 };
 
-async function getMe(req: UsersRequest, res: Response) {
+async function getMe(req: Request, res: Response) {
   return res
     .status(200)
     .json({ message: "User details fetched successfully", user: req.user });
@@ -33,8 +24,4 @@ async function getMyPosts(req: Request, res: Response) {
     message: "All posts fetched successfully",
     posts: allPosts.allPosts,
   });
-}
-
-function emptyEndpoint(req: Request, res: Response) {
-  return res.status(200).json({ message: "Empty endpoint" });
 }

@@ -1,5 +1,5 @@
 import userController from "../controllers/userController.js";
-import checkToken from "../services/chekToken.js";
+import checkToken from "../services/checkToken.js";
 
 import { Router } from "express";
 

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { prisma } from "../prisma/lib/prisma.js";
+import { REFRESH_TOKEN_GRACE_PERIOD_MS } from "../config/env.js";
 
 export default {
   storeToken,
@@ -24,8 +25,6 @@ type TokenRotationResult =
       status: 403 | 500;
       message: string;
     };
-
-const REFRESH_TOKEN_GRACE_PERIOD_MS = 5_000;
 
 function hashToken(token: string) {
   return createHash("sha256").update(token).digest("hex");

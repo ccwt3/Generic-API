@@ -1,8 +1,14 @@
-import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import jwt from "jsonwebtoken";
 import tokensModel from "../models/tokensModel.js";
 import UsersModel from "../models/UsersModel.js";
+import {
+  JWT_KEY,
+  JWT_KEY_REFRESH,
+  ACCESS_TOKEN_TTL_S,
+  REFRESH_TOKEN_TTL_S,
+  REFRESH_TOKEN_GRACE_PERIOD_MS,
+} from "../config/env.js";
 
 import type { JwtPayload } from "jsonwebtoken";
 
@@ -39,24 +45,10 @@ type RefreshVerificationResult =
   | { status: 200; message: string; payload: RefreshPayload }
   | { status: 401; message: string };
 
-const REFRESH_TOKEN_GRACE_PERIOD_MS = 5_000;
 const refreshTokenGraceCache = new Map<
   string,
   { token: string; expiresAt: number }
 >();
-
-function getRequiredEnv(name: string) {
-  const value = process.env[name];
-
-  if (!value) {
-    throw new Error(`${name} is missing`);
-  }
-
-  return value;
-}
-
-const accessSecret = getRequiredEnv("JWT_KEY");
-const refreshSecret = getRequiredEnv("JWT_KEY_REFRESH");
 
 function isAccessPayload(payload: string | JwtPayload): payload is AccessPayload {
   return (
@@ -74,8 +66,8 @@ function isRefreshPayload(
 }
 
 function signRefreshTokenValue(userId: string) {
-  return jwt.sign({ userId, jti: randomUUID() }, refreshSecret, {
-    expiresIn: "5m",
+  return jwt.sign({ userId, jti: randomUUID() }, JWT_KEY_REFRESH, {
+    expiresIn: REFRESH_TOKEN_TTL_S,
   });
 }
 
@@ -130,7 +122,9 @@ async function jwtSignRefresh(payload: { id: string }): Promise<TokenResult> {
 
 function jwtSignAccess(payload: AccessPayload): TokenResult {
   try {
-    const token = jwt.sign(payload, accessSecret, { expiresIn: "1m" });
+    const token = jwt.sign(payload, JWT_KEY, {
+      expiresIn: ACCESS_TOKEN_TTL_S,
+    });
     return { status: 200, token, message: "" };
   } catch (error) {
     console.error("Error signing access token:", error);
@@ -140,7 +134,7 @@ function jwtSignAccess(payload: AccessPayload): TokenResult {
 
 function jwtVerifyAccess(token: string): AccessVerificationResult {
   try {
-    const payload = jwt.verify(token, accessSecret);
+    const payload = jwt.verify(token, JWT_KEY);
 
     if (!isAccessPayload(payload)) {
       return { status: 401, message: "Invalid token payload" };
@@ -155,7 +149,7 @@ function jwtVerifyAccess(token: string): AccessVerificationResult {
 
 function jwtVerifyRefresh(token: string): RefreshVerificationResult {
   try {
-    const payload = jwt.verify(token, refreshSecret);
+    const payload = jwt.verify(token, JWT_KEY_REFRESH);
 
     if (!isRefreshPayload(payload)) {
       return { status: 401, message: "Invalid token payload" };

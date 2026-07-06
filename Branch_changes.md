@@ -2,6 +2,13 @@
 
 # Cambios de la rama `sessions`
 
+> **Nota (registro histórico).** Este archivo documenta la rama `sessions` de la
+> API original y **no refleja el estado actual del código** (rama `refactor`).
+> Puede contradecir al README/código vigente — p. ej. aquí se dice que el refresh
+> token expira en "1 hora", cuando hoy el JWT de refresh expira en **5 min** (la
+> cookie sí dura 1 h; ver deuda técnica #2 en el README). Se conserva como
+> registro; para el estado vigente ver [`README.md`](README.md).
+
 Esta documentacion resume los cambios observados en la rama `sessions` comparada contra `main`, incluyendo los cambios sin commit presentes en el working tree.
 
 ## Resumen
@@ -209,3 +216,97 @@ Se revisaron `models`, `controllers`, `prisma`, `routes` y `services` con foco e
 - La ventana de gracia devuelve el refresh token nuevo desde una cache en memoria. Si el proceso reinicia dentro de esos 5 segundos, no puede reconstruir el token crudo porque la base de datos solo guarda hashes.
 - `deleteToken` en logout sigue eliminando el token presentado; si en el futuro se quieren sesiones multiples por usuario o logout global, hay que definir esa politica explicitamente.
 - No hay pruebas automatizadas para la carrera de `/auth/refresh`; el flujo compila, pero esta parte merece test de integracion con dos requests casi simultaneas.
+
+---
+
+## Sesion (rama `refactor`) — higiene de documentacion
+
+Pasada de solo-documentacion, sin cambios de comportamiento en el codigo:
+
+- `README.md`: se elimino la raiz inexistente `API/` del diagrama de estructura
+  (los archivos viven en la raiz del repo) y se agregaron `prisma.config.ts` y
+  `prisma/generated/prisma/` para reflejar el layout real.
+- `README.md`: corregido el enlace roto `BRANCH_CHANGES.md` -> `Branch_changes.md`
+  (fallaba en sistemas case-sensitive como GitHub/Linux) y anotado que apunta a un
+  registro historico de la rama `sessions`.
+- `Branch_changes.md`: se agrego una nota de "registro historico" aclarando que
+  documenta la rama `sessions` y puede contradecir el codigo actual (menciona
+  refresh de "1 hora" cuando el JWT de refresh hoy expira en 5 min).
+
+[Listo :v]
+
+---
+
+## Sesion (rama `refactor`) — conversion de blog API a API template
+
+Objetivo: transformar la copia de la blog API en un **template de API**
+reutilizable, conservando la esencia (capas, nombres, estilo) y arreglando la
+deuda tecnica pendiente. Toda la documentacion nueva vive en `README_new.md`.
+
+### Configuracion centralizada (nuevo `config/env.ts`)
+
+- Unica fuente de verdad de la config: valida al arranque las criticas
+  (`DATABASE_URL`, `JWT_KEY`, `JWT_KEY_REFRESH`, y **`COOKIE_KEY`, que antes no
+  se validaba** — bug: el server arrancaba y el login reventaba en runtime).
+- Opcionales con default: `PORT` (3000), `CORS_ORIGIN`, `IS_PRODUCTION`,
+  `ACCESS_TOKEN_TTL_S` (900 = 15 min), `REFRESH_TOKEN_TTL_S` (604800 = 7 dias).
+- Los TTL de los tokens ahora vienen de env y el `maxAge` de las cookies se
+  **deriva** de ellos (`ttl * 1000`): arregla la deuda #2 (cookie de 1 h que
+  sobrevivia a un JWT de 5 min). Se fueron los valores de testing (1 min / 5 min).
+- `REFRESH_TOKEN_GRACE_PERIOD_MS` quedo definida una sola vez (deuda #7; antes
+  duplicada en `jwtFunctions.ts` y `tokensModel.ts`).
+- Migrados a consumir `config/env.ts`: `prisma/lib/prisma.ts`, `jwtFunctions.ts`,
+  `authController.ts`, `corsOptions.ts`, `tokensModel.ts`, `app.ts`.
+
+### Fixes de deuda tecnica
+
+- **CORS** ahora permite `PATCH` (deuda #1; el preflight lo bloqueaba) y el
+  `origin` sale de env.
+- **Script `dev`**: `tsx watch app.ts` (deuda #4; antes `pnpm dlx tsx app.js`,
+  que apuntaba a un archivo inexistente y redescargaba tsx).
+- **helmet** global y **express-rate-limit** en `/auth` (100 req / 15 min por
+  IP) (deuda #8). Nuevas dependencias.
+- **Error handler** de `app.ts`: `err: unknown` (antes mal tipado como
+  `ErrorRequestHandler`) y mensaje serio; `PORT` desde env.
+- Typo de archivo: `services/chekToken.ts` → `services/checkToken.ts` (git mv).
+- Limpieza: `emptyEndpoint` e interfaz `UsersRequest` muertos en
+  `userController.ts`; validacion manual redundante en `postNewPost`.
+
+### Recurso de ejemplo `posts` completado
+
+- **`GET /posts` real** (deuda #5): listado publico de posts publicados, sin
+  auth (antes exigia token y respondia "Empty endpoint").
+- **`PATCH /posts/:id/publish`**: publica/despublica un post propio. Nuevo
+  `publishValidatorChain` (boolean estricto) + `PostsModel.setPublishStatus`.
+
+### Base de datos
+
+- Eliminado el modelo `Comment` (estaba en la base sin rutas ni controllers).
+  Migracion `20260705230145_remove_comments` aplicada y cliente regenerado.
+
+### Archivos nuevos
+
+- `README_new.md`: documentacion completa del template (flujo de request,
+  capas, convenciones, referencia de API, guia para agregar un recurso nuevo,
+  limitaciones conocidas).
+- `.env.example`: plantilla de variables de entorno.
+- `pnpm-workspace.yaml`: `allowBuilds` para prisma/esbuild (pnpm 11 bloquea
+  build scripts por defecto).
+
+### Verificacion
+
+- `tsc --noEmit` limpio.
+- Flujo end-to-end con curl contra el server local: register (201) → GET /posts
+  anonimo (200) → POST /posts (201) → publish (200, y 400 con boolean invalido)
+  → el post aparece en el listado publico → refresh (200) → logout (200) →
+  preflight OPTIONS anuncia PATCH y helmet responde con CSP.
+- Datos de prueba del smoke test borrados (queda el usuario `tpl.check` en la
+  DB de dev; no hay endpoint para borrar usuarios).
+
+### Conscientemente NO tocado (esencia)
+
+- La ventana de gracia sigue en memoria (limitacion single-instance documentada).
+- Estructura de capas, contrato `{ status, ...data }`, estilo de modelos y
+  controllers: intactos.
+
+[Listo :v]

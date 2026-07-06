@@ -5,9 +5,10 @@ import { z } from "zod";
 export default {
   postNewPost,
   getPost,
-  emptyEndpoint,
+  getPublicPosts,
   deletePost,
   updatePost,
+  setPublishStatus,
 };
 
 const uuIdSchema = z.string().uuid({ version: "v4" });
@@ -20,6 +21,38 @@ function getRequestIds(req: Request) {
     userId,
     postId,
   };
+}
+
+async function setPublishStatus(req: Request, res: Response) {
+  const { userId, postId } = getRequestIds(req);
+  const result = uuIdSchema.safeParse(postId);
+  // is_published ya viene garantizado como boolean por publishValidatorChain
+  const isPublished = req.body.is_published as boolean;
+
+  if (!result.success) {
+    return res.status(400).json({
+      message: "No given mandatory information",
+      details: result.error.issues,
+    });
+  }
+
+  const response = await PostsModel.setPublishStatus(
+    postId,
+    userId,
+    isPublished,
+  );
+
+  if (response.status === 404) {
+    return res.status(404).json({ message: "Post not found" });
+  }
+
+  if (response.status === 500) {
+    return res.status(500).json({ message: "Error updating this post" });
+  }
+
+  return res
+    .status(200)
+    .json({ message: "Post publish status updated successfully" });
 }
 
 async function updatePost(req: Request, res: Response) {
@@ -99,13 +132,9 @@ async function getPost(req: Request, res: Response) {
 }
 
 async function postNewPost(req: Request, res: Response) {
-  if (!req.body || !req.body.title || !req.body.message) {
-    return res.status(400).json({ message: "No given mandatory information" });
-  }
-
+  // title y message ya vienen garantizados por postValidatorChain + sanitizerCheck
   const userId = req.user!.id;
-  const title = req.body.title;
-  const message = req.body.message;
+  const { title, message } = req.body;
 
   const newPost = await PostsModel.createPost(userId, title, message);
 
@@ -116,6 +145,15 @@ async function postNewPost(req: Request, res: Response) {
   return res.status(201).json({ message: "Post created successfully" });
 }
 
-function emptyEndpoint(req: Request, res: Response) {
-  return res.status(200).json({ message: "Empty endpoint" });
+async function getPublicPosts(req: Request, res: Response) {
+  const response = await PostsModel.getPublicPosts();
+
+  if (response.status === 500) {
+    return res.status(500).json({ message: "Error fetching the posts" });
+  }
+
+  return res.status(200).json({
+    message: "Posts fetched successfully",
+    posts: response.posts,
+  });
 }

@@ -1,5 +1,10 @@
 import jwtFC from "../services/jwtFunctions.js";
 import userModel from "../models/UsersModel.js";
+import {
+  IS_PRODUCTION,
+  ACCESS_TOKEN_TTL_S,
+  REFRESH_TOKEN_TTL_S,
+} from "../config/env.js";
 
 import type { Request, Response } from "express";
 
@@ -16,13 +21,14 @@ type AuthenticatedUser = {
   username: string;
 };
 
-const ACCESS_TOKEN_MAX_AGE = 1000 * 60;
-const REFRESH_TOKEN_MAX_AGE = 1000 * 60 * 60;
+// El maxAge de cada cookie se deriva del TTL de su JWT: nunca divergen.
+const ACCESS_TOKEN_MAX_AGE = ACCESS_TOKEN_TTL_S * 1000;
+const REFRESH_TOKEN_MAX_AGE = REFRESH_TOKEN_TTL_S * 1000;
 
 const authCookieOptions = {
   signed: true,
   httpOnly: true,
-  secure: process.env.ENVIRONMENT === "production",
+  secure: IS_PRODUCTION,
   sameSite: "lax" as const,
 };
 

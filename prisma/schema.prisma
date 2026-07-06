@@ -8,33 +8,22 @@ datasource db {
 }
 
 model User {
-  id       String    @id @default(uuid())
-  username String    @unique
+  id       String @id @default(uuid())
+  username String @unique
   password String
-  role     Role      @default(USER)
+  role     Role   @default(USER)
   posts    Post[]
-  comments Comment[]
 }
 
 model Post {
-  id             String    @id @default(uuid())
+  id             String   @id @default(uuid())
   author_id      String
-  author         User      @relation(fields: [author_id], references: [id])
+  author         User     @relation(fields: [author_id], references: [id])
   title          String
   message        String
-  published_time DateTime  @default(now())
+  published_time DateTime @default(now())
   image_url      String?
-  is_published   Boolean   @default(false)
-  comments       Comment[]
-}
-
-model Comment {
-  id        String @id @default(uuid())
-  post_id   String
-  posts     Post   @relation(fields: [post_id], references: [id])
-  author_id String
-  author    User   @relation(fields: [author_id], references: [id])
-  message   String
+  is_published   Boolean  @default(false)
 }
 
 model Tokens {
